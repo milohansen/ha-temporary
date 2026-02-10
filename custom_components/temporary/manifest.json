@@ -1,0 +1,12 @@
+{
+  "domain": "temporary",
+  "name": "Temporary Entities",
+  "codeowners": ["@milohansen"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/milohansen/ha-temporary",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/milohansen/ha-temporary/issues",
+  "requirements": ["whenever>=0.9.5"],
+  "version": "0.1.0"
+}

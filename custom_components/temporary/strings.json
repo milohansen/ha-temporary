@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Temporary Entities",
+        "description": "Set up the Temporary Entities integration to manage short-lived entities with automatic cleanup."
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Temporary Entities Options",
+        "description": "Configure how temporary entities are managed and cleaned up.",
+        "data": {
+          "min_persist_duration": "Minimum duration to persist (seconds)",
+          "cleanup_interval": "Cleanup check interval (seconds)",
+          "finalized_grace_period": "Grace period after finalized (seconds)",
+          "inactive_max_age": "Maximum age for paused entities (seconds)"
+        },
+        "data_description": {
+          "min_persist_duration": "Entities with expected duration shorter than this won't be saved to disk. Range: 1-300 seconds.",
+          "cleanup_interval": "How often to check for expired entities. Range: 60-3600 seconds (1-60 minutes).",
+          "finalized_grace_period": "How long to keep finalized entities before cleanup. Range: 0-300 seconds.",
+          "inactive_max_age": "How long to keep paused/inactive entities before cleanup. Range: 3600-604800 seconds (1 hour - 1 week)."
+        }
+      }
+    }
+  },
+  "services": {
+    "delete": {
+      "name": "Delete Temporary Entity",
+      "description": "Delete a temporary entity immediately."
+    },
+    "pause": {
+      "name": "Pause Temporary Entity",
+      "description": "Pause a temporary entity (if supported by the entity type)."
+    },
+    "resume": {
+      "name": "Resume Temporary Entity",
+      "description": "Resume a paused temporary entity."
+    }
+  }
+}
