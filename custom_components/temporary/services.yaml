@@ -38,133 +38,77 @@ resume:
       selector:
         entity:
           integration: temporary
-      selector:
-        object:
-    start_date:
-      name: Start date
-      description: Date from which schedule should be executed
-      example: '["2021-01-01"]'
-      required: false
-      selector:
-        object:
-    end_date:
-      name: End date
-      description: Date until which schedule should be executed
-      example: '["2021-12-31"]'
-      required: false
-      selector:
-        object:
-    timeslots:
-      name: Timeslots
-      description: list of timeslots with their actions and optionally conditions (should be kept the same for all timeslots)
-      example: '[{start: "12:00", stop: "13:00", actions: [{service: "light.turn_on", entity_id: "light.my_lamp", service_data: {brightness: 200}}]}]'
-      required: true
-      selector:
-        object:
-    repeat_type:
-      name: Repeat Type
-      description: Control what happens after the schedule is triggered
-      example: '"repeat"'
-      required: true
-      selector:
-        select:
-          options:
-            - repeat
-            - single
-            - pause
+
+create_temporary:
+  name: Create Temporary Timer
+  description: Create a new temporary timer.
+  fields:
     name:
       name: Name
-      description: Friendly name for the schedule
-      required: false
-      example: "My schedule"
+      description: The name for the timer.
+      required: true
+      example: "My Timer"
       selector:
         text:
+    duration:
+      name: Duration
+      description: The duration in seconds.
+      required: true
+      example: 300
+      selector:
+        number:
+          min: 1
+          max: 86400
+          unit_of_measurement: seconds
 
-edit:
-  name: Edit
-  description: Edit a schedule entity
+start:
+  name: Start Timer
+  description: Start or restart a temporary timer.
   fields:
     entity_id:
-      name: Entity
-      description: Identifier of the scheduler entity.
-      example: "switch.schedule_abcdef"
+      name: Entity ID
+      description: The timer entity to start.
       required: true
+      example: "timer.temporary_timer_12345"
       selector:
         entity:
-          integration: scheduler
-          domain: switch
-    weekdays:
-      name: Weekdays
-      description: Days of the week for which the schedule should be repeated
-      example: '["daily"]'
+          integration: temporary
+          domain: timer
+    duration:
+      name: Duration
+      description: Optional new duration in seconds. If not provided, uses the timer's current duration.
       required: false
+      example: 300
       selector:
-        object:
-    start_date:
-      name: Start date
-      description: Date from which schedule should be executed
-      example: '["2021-01-01"]'
-      required: false
-      selector:
-        object:
-    end_date:
-      name: End date
-      description: Date until which schedule should be executed
-      example: '["2021-12-31"]'
-      required: false
-      selector:
-        object:
-    timeslots:
-      name: Timeslots
-      description: list of timeslots with their actions and optionally conditions (should be kept the same for all timeslots)
-      example: '[{start: "12:00", stop: "13:00", actions: [{service: "light.turn_on", entity_id: "light.my_lamp", service_data: {brightness: 200}}]}]'
-      required: false
-      selector:
-        object:
-    repeat_type:
-      name: Repeat Type
-      description: Control what happens after the schedule is triggered
-      example: '"repeat"'
-      required: false
-      selector:
-        select:
-          options:
-            - repeat
-            - single
-            - pause
-    name:
-      name: Name
-      description: Friendly name for the schedule
-      required: false
-      example: "My schedule"
-      selector:
-        text:
+        number:
+          min: 1
+          max: 86400
+          unit_of_measurement: seconds
 
-copy:
-  name: Copy
-  description: Duplicate a schedule entity
+cancel:
+  name: Cancel Timer
+  description: Cancel a running temporary timer.
   fields:
     entity_id:
-      name: Entity
-      description: Identifier of the scheduler entity.
-      example: "switch.schedule_abcdef"
+      name: Entity ID
+      description: The timer entity to cancel.
       required: true
+      example: "timer.temporary_timer_12345"
       selector:
         entity:
-          integration: scheduler
-          domain: switch
-    name:
-      name: Name
-      description: Friendly name for the copied schedule
-      required: false
-      example: "My schedule"
+          integration: temporary
+          domain: timer
+
+finish:
+  name: Finish Timer
+  description: Finish a temporary timer immediately.
+  fields:
+    entity_id:
+      name: Entity ID
+      description: The timer entity to finish.
+      required: true
+      example: "timer.temporary_timer_12345"
       selector:
-        text:
-
-disable_all:
-  name: Disable All
-  description:  Disables all schedules
-
-enable_all:
-  name: Enable All
-  description:  Enables all schedules
+        entity:
+          integration: temporary
+          domain: timer

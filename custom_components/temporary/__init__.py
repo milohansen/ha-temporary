@@ -9,7 +9,8 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, entity_component
+import homeassistant.util.dt as dt_util
 
 from .const import (
     CONF_CLEANUP_INTERVAL,
@@ -22,9 +23,13 @@ from .const import (
     DEFAULT_MIN_PERSIST_DURATION,
     DOMAIN,
     PLATFORMS,
+    SERVICE_CANCEL,
+    SERVICE_CREATE_TEMPORARY,
     SERVICE_DELETE,
+    SERVICE_FINISH,
     SERVICE_PAUSE,
     SERVICE_RESUME,
+    SERVICE_START,
 )
 from .manager import TemporaryEntityManager
 
@@ -60,6 +65,95 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Register domain services
+    async def handle_create_temporary(call: ServiceCall) -> None:
+        """Handle create temporary timer service call."""
+        name = call.data["name"]
+        duration = call.data["duration"]  # seconds
+
+        # Import here to avoid circular dependency at module level
+        from .timer import TemporaryTimer  # noqa: PLC0415
+
+        # Create unique ID based on timestamp
+        unique_id = f"timer_{dt_util.utcnow().timestamp()}"
+
+        # Create timer entity
+        timer = TemporaryTimer(
+            hass,
+            unique_id=unique_id,
+            name=name,
+            duration=duration,
+        )
+
+        # Get the entity component and add entity
+        component = entity_component.EntityComponent(_LOGGER, "timer", hass)
+        await component.async_add_entities([timer])
+
+        # Start the timer
+        await timer.start()
+        _LOGGER.info("Created and started temporary timer: %s", timer.entity_id)
+
+    async def handle_start(call: ServiceCall) -> None:
+        """Handle start timer service call."""
+        entity_id = call.data[ATTR_ENTITY_ID]
+        duration = call.data.get("duration")
+
+        try:
+            entity = manager.get_entity(entity_id)
+            if not entity:
+                _LOGGER.error("Timer %s not found", entity_id)
+                return
+
+            # Check if entity has start method (timer specific)
+            if not hasattr(entity, "start"):
+                _LOGGER.error("Entity %s does not support start", entity_id)
+                return
+
+            # Set new duration if provided
+            if duration and hasattr(entity, "set_duration"):
+                entity.set_duration(duration)  # type: ignore[attr-defined]
+
+            await entity.start()  # type: ignore[attr-defined]
+        except (KeyError, ValueError, AttributeError) as err:
+            _LOGGER.error("Error starting entity %s: %s", entity_id, err)
+
+    async def handle_cancel(call: ServiceCall) -> None:
+        """Handle cancel timer service call."""
+        entity_id = call.data[ATTR_ENTITY_ID]
+
+        try:
+            entity = manager.get_entity(entity_id)
+            if not entity:
+                _LOGGER.error("Timer %s not found", entity_id)
+                return
+
+            # Check if entity has cancel method (timer specific)
+            if not hasattr(entity, "cancel"):
+                _LOGGER.error("Entity %s does not support cancel", entity_id)
+                return
+
+            await entity.cancel()  # type: ignore[attr-defined]
+        except (KeyError, ValueError, AttributeError) as err:
+            _LOGGER.error("Error canceling entity %s: %s", entity_id, err)
+
+    async def handle_finish(call: ServiceCall) -> None:
+        """Handle finish timer service call."""
+        entity_id = call.data[ATTR_ENTITY_ID]
+
+        try:
+            entity = manager.get_entity(entity_id)
+            if not entity:
+                _LOGGER.error("Timer %s not found", entity_id)
+                return
+
+            # Check if entity has finish method (timer specific)
+            if not hasattr(entity, "finish"):
+                _LOGGER.error("Entity %s does not support finish", entity_id)
+                return
+
+            await entity.finish()  # type: ignore[attr-defined]
+        except (KeyError, ValueError, AttributeError) as err:
+            _LOGGER.error("Error finishing entity %s: %s", entity_id, err)
+
     async def handle_delete(call: ServiceCall) -> None:
         """Handle delete service call."""
         entity_id = call.data[ATTR_ENTITY_ID]
@@ -100,6 +194,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.services.async_register(
         DOMAIN,
+        SERVICE_CREATE_TEMPORARY,
+        handle_create_temporary,
+        schema=vol.Schema(
+            {
+                vol.Required("name"): cv.string,
+                vol.Required("duration"): cv.positive_int,
+            }
+        ),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_START,
+        handle_start,
+        schema=vol.Schema(
+            {
+                vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+                vol.Optional("duration"): cv.positive_int,
+            }
+        ),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CANCEL,
+        handle_cancel,
+        schema=vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_id}),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_FINISH,
+        handle_finish,
+        schema=vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_id}),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_DELETE,
         handle_delete,
         schema=vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_id}),
@@ -133,6 +265,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop("manager")
         # Unregister services
+        hass.services.async_remove(DOMAIN, SERVICE_CREATE_TEMPORARY)
+        hass.services.async_remove(DOMAIN, SERVICE_START)
+        hass.services.async_remove(DOMAIN, SERVICE_CANCEL)
+        hass.services.async_remove(DOMAIN, SERVICE_FINISH)
         hass.services.async_remove(DOMAIN, SERVICE_DELETE)
         hass.services.async_remove(DOMAIN, SERVICE_PAUSE)
         hass.services.async_remove(DOMAIN, SERVICE_RESUME)
