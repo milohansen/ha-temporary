@@ -31,6 +31,18 @@ def _format_timedelta(delta: timedelta) -> str:
     return f"{int(hours)}:{int(minutes):02}:{int(seconds):02}"
 
 
+def _parse_timedelta(time_str: str) -> int:
+    """Parse H:MM:SS string to seconds."""
+    try:
+        parts = time_str.split(":")
+        if len(parts) != 3:
+            return 0
+        hours, minutes, seconds = parts
+        return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
+    except ValueError, AttributeError:
+        return 0
+
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -193,10 +205,20 @@ class TemporaryTimer(TemporaryEntity):
 
         # Restore timer-specific attributes
         if old_state.attributes.get(ATTR_DURATION):
-            self._duration_s = int(old_state.attributes[ATTR_DURATION])
+            duration_val = old_state.attributes[ATTR_DURATION]
+            # Handle both formatted string (H:MM:SS) and raw int/float
+            if isinstance(duration_val, str):
+                self._duration_s = _parse_timedelta(duration_val)
+            else:
+                self._duration_s = int(duration_val)
 
         if old_state.attributes.get(ATTR_REMAINING):
-            remaining_seconds = float(old_state.attributes[ATTR_REMAINING])
+            remaining_val = old_state.attributes[ATTR_REMAINING]
+            # Handle both formatted string (H:MM:SS) and raw int/float
+            if isinstance(remaining_val, str):
+                remaining_seconds = _parse_timedelta(remaining_val)
+            else:
+                remaining_seconds = float(remaining_val)
             self._remaining = timedelta(seconds=remaining_seconds)
 
         if old_state.attributes.get("start_time"):
