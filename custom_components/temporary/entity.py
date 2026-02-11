@@ -58,7 +58,9 @@ class TemporaryEntity(RestoreEntity, Entity):
         """Update entity specific state attributes."""
         attrs: dict[str, Any] = {
             ATTR_CREATED_AT: self._created_at.isoformat(),
-            ATTR_EXPECTED_DURATION: self._expected_duration,
+            ATTR_EXPECTED_DURATION: self._expected_duration.total_seconds()
+            if self._expected_duration
+            else None,
             "state": self._state,
         }
 
@@ -179,7 +181,9 @@ class TemporaryEntity(RestoreEntity, Entity):
             )
 
         if old_state.attributes.get("expected_duration"):
-            self._expected_duration = old_state.attributes["expected_duration"]
+            self._expected_duration = timedelta(
+                seconds=old_state.attributes["expected_duration"]
+            )
 
         # Restore state
         self._state = old_state.state
