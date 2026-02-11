@@ -26,6 +26,11 @@ This is a custom Home Assistant integration that manages temporary entities with
 
 ### Before Considering Any Task Complete
 
+0. **Use the python virtual environment**: Always work within the project's virtual environment to ensure dependencies are correctly managed
+   ```bash
+   source .venv/bin/activate
+   ```
+
 1. **Always run Ruff for linting and formatting**:
    ```bash
    ruff check custom_components/temporary/

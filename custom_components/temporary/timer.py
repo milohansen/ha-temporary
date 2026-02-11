@@ -34,6 +34,15 @@ from .const import (
 )
 from .entity import TemporaryEntity
 
+
+def _format_timedelta(delta: timedelta) -> str:
+    """Format timedelta as H:MM:SS string."""
+    total_seconds = max(delta.total_seconds(), 0)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{int(hours)}:{int(minutes):02}:{int(seconds):02}"
+
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -202,13 +211,13 @@ class TemporaryTimer(TemporaryEntity):
             if remaining.total_seconds() < 0:
                 remaining = timedelta(0)
 
-        # Round to 2 decimal places for display
-        remaining_seconds = round(remaining.total_seconds(), 2)
+        # Format duration as timedelta for formatting
+        duration_delta = timedelta(seconds=self._duration_s)
 
         self._attr_extra_state_attributes.update(
             {
-                ATTR_DURATION: self._duration_s,
-                ATTR_REMAINING: remaining_seconds,
+                ATTR_DURATION: _format_timedelta(duration_delta),
+                ATTR_REMAINING: _format_timedelta(remaining),
             }
         )
 
