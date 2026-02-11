@@ -7,7 +7,7 @@ DOMAIN = "temporary"
 VERSION = "0.1.0"
 
 # Platforms
-PLATFORMS = ["timer"]
+PLATFORMS = []
 
 # Configuration keys
 CONF_MIN_PERSIST_DURATION = "min_persist_duration"

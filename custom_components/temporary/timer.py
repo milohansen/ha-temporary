@@ -6,14 +6,8 @@ from datetime import datetime, timedelta
 import logging
 from typing import Any
 
-import voluptuous as vol
-
-from homeassistant.components.timer import DOMAIN as TIMER_DOMAIN
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
-from homeassistant.core import HomeAssistant, ServiceCall, State, callback
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers.event import async_track_point_in_time
 import homeassistant.util.dt as dt_util
 
@@ -21,12 +15,6 @@ from .const import (
     ATTR_DURATION,
     ATTR_FINISHES_AT,
     ATTR_REMAINING,
-    DOMAIN,
-    SERVICE_CANCEL,
-    SERVICE_CREATE_TEMPORARY,
-    SERVICE_FINISH,
-    SERVICE_PAUSE,
-    SERVICE_START,
     STATE_ACTIVE,
     STATE_FINALIZED,
     STATE_IDLE,
@@ -44,127 +32,6 @@ def _format_timedelta(delta: timedelta) -> str:
 
 
 _LOGGER = logging.getLogger(__name__)
-
-
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up temporary timer platform."""
-
-    async def handle_create(call: ServiceCall) -> None:
-        """Handle create timer service."""
-        name = call.data["name"]
-        duration = call.data["duration"]  # seconds
-
-        timer = TemporaryTimer(
-            hass,
-            unique_id=f"timer_{dt_util.utcnow().timestamp()}",
-            name=name,
-            duration=duration,
-        )
-
-        async_add_entities([timer])
-        await timer.start()
-
-    async def handle_start(call: ServiceCall) -> None:
-        """Handle start timer service."""
-        entity_id = call.data[ATTR_ENTITY_ID]
-        manager = hass.data[DOMAIN]["manager"]
-        entity = manager.get_entity(entity_id)
-
-        if not entity or not isinstance(entity, TemporaryTimer):
-            _LOGGER.error("Timer %s not found", entity_id)
-            return
-
-        duration = call.data.get("duration")
-        if duration:
-            entity.set_duration(duration)
-
-        await entity.start()
-
-    async def handle_pause(call: ServiceCall) -> None:
-        """Handle pause timer service."""
-        entity_id = call.data[ATTR_ENTITY_ID]
-        manager = hass.data[DOMAIN]["manager"]
-        entity = manager.get_entity(entity_id)
-
-        if not entity or not isinstance(entity, TemporaryTimer):
-            _LOGGER.error("Timer %s not found", entity_id)
-            return
-
-        await entity.pause()
-
-    async def handle_cancel(call: ServiceCall) -> None:
-        """Handle cancel timer service."""
-        entity_id = call.data[ATTR_ENTITY_ID]
-        manager = hass.data[DOMAIN]["manager"]
-        entity = manager.get_entity(entity_id)
-
-        if not entity or not isinstance(entity, TemporaryTimer):
-            _LOGGER.error("Timer %s not found", entity_id)
-            return
-
-        await entity.cancel()
-
-    async def handle_finish(call: ServiceCall) -> None:
-        """Handle finish timer service."""
-        entity_id = call.data[ATTR_ENTITY_ID]
-        manager = hass.data[DOMAIN]["manager"]
-        entity = manager.get_entity(entity_id)
-
-        if not entity or not isinstance(entity, TemporaryTimer):
-            _LOGGER.error("Timer %s not found", entity_id)
-            return
-
-        await entity.finish()
-
-    # Register services
-    hass.services.async_register(
-        TIMER_DOMAIN,
-        SERVICE_CREATE_TEMPORARY,
-        handle_create,
-        schema=vol.Schema(
-            {
-                vol.Required("name"): cv.string,
-                vol.Required("duration"): cv.positive_int,
-            }
-        ),
-    )
-
-    hass.services.async_register(
-        TIMER_DOMAIN,
-        SERVICE_START,
-        handle_start,
-        schema=vol.Schema(
-            {
-                vol.Required(ATTR_ENTITY_ID): cv.entity_id,
-                vol.Optional("duration"): cv.positive_int,
-            }
-        ),
-    )
-
-    hass.services.async_register(
-        TIMER_DOMAIN,
-        SERVICE_PAUSE,
-        handle_pause,
-        schema=vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_id}),
-    )
-
-    hass.services.async_register(
-        TIMER_DOMAIN,
-        SERVICE_CANCEL,
-        handle_cancel,
-        schema=vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_id}),
-    )
-
-    hass.services.async_register(
-        TIMER_DOMAIN,
-        SERVICE_FINISH,
-        handle_finish,
-        schema=vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_id}),
-    )
 
 
 class TemporaryTimer(TemporaryEntity):

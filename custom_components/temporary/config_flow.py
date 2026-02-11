@@ -1,4 +1,5 @@
 """Config flow for Temporary Entities integration."""
+
 from __future__ import annotations
 
 import logging

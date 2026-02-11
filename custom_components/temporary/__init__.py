@@ -9,7 +9,11 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import config_validation as cv, entity_component
+from homeassistant.helpers import (
+    config_validation as cv,
+    entity_component,
+    entity_registry as er,
+)
 import homeassistant.util.ulid as ulid_util
 
 from .const import (
@@ -22,7 +26,6 @@ from .const import (
     DEFAULT_INACTIVE_MAX_AGE,
     DEFAULT_MIN_PERSIST_DURATION,
     DOMAIN,
-    PLATFORMS,
     SERVICE_CANCEL,
     SERVICE_CREATE_TEMPORARY,
     SERVICE_DELETE,
@@ -36,35 +39,48 @@ from .manager import TemporaryEntityManager
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up temporary entities from a config entry."""
-    hass.data.setdefault(DOMAIN, {})
+async def _restore_timer_entities(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    timer_component: entity_component.EntityComponent,
+) -> None:
+    """Restore timer entities from registry."""
+    ent_reg = er.async_get(hass)
+    entries = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
 
-    # Create manager with options from config entry
-    manager = TemporaryEntityManager(
-        hass,
-        min_persist_duration=entry.options.get(
-            CONF_MIN_PERSIST_DURATION, DEFAULT_MIN_PERSIST_DURATION
-        ),
-        cleanup_interval=entry.options.get(
-            CONF_CLEANUP_INTERVAL, DEFAULT_CLEANUP_INTERVAL
-        ),
-        finalized_grace_period=entry.options.get(
-            CONF_FINALIZED_GRACE_PERIOD, DEFAULT_FINALIZED_GRACE_PERIOD
-        ),
-        inactive_max_age=entry.options.get(
-            CONF_INACTIVE_MAX_AGE, DEFAULT_INACTIVE_MAX_AGE
-        ),
-    )
-    hass.data[DOMAIN]["manager"] = manager
+    if not entries:
+        return
 
-    # Start cleanup task
-    await manager.async_start()
+    # Import here to avoid circular dependency at module level
+    from .timer import TemporaryTimer  # noqa: PLC0415
 
-    # Setup platforms
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entities_to_restore: list[TemporaryTimer] = []
+    for ent_entry in entries:
+        if ent_entry.domain == "timer":
+            # Extract name from entity_id or use unique_id
+            name = ent_entry.original_name or ent_entry.entity_id.split(".")[-1]
 
-    # Register domain services
+            # Create timer entity with stored unique_id
+            timer = TemporaryTimer(
+                hass,
+                unique_id=ent_entry.unique_id,
+                name=name,
+                duration=60,  # Default, will be restored from state
+            )
+            entities_to_restore.append(timer)
+            _LOGGER.debug("Restoring timer entity: %s", ent_entry.entity_id)
+
+    if entities_to_restore:
+        await timer_component.async_add_entities(entities_to_restore)
+        _LOGGER.info("Restored %d timer entities", len(entities_to_restore))
+
+
+def _register_services(
+    hass: HomeAssistant,
+    manager: TemporaryEntityManager,
+) -> None:
+    """Register integration services."""
+
     async def handle_create_temporary(call: ServiceCall) -> None:
         """Handle create temporary timer service call."""
         name = call.data["name"]
@@ -84,9 +100,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             duration=duration,
         )
 
-        # Get the entity component and add entity
-        component = entity_component.EntityComponent(_LOGGER, "timer", hass)
-        await component.async_add_entities([timer])
+        # Get the timer component from stored data
+        timer_component = hass.data[DOMAIN]["timer_component"]
+        await timer_component.async_add_entities([timer])
 
         # Start the timer
         await timer.start()
@@ -251,6 +267,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         schema=vol.Schema({vol.Required(ATTR_ENTITY_ID): cv.entity_id}),
     )
 
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up temporary entities from a config entry."""
+    hass.data.setdefault(DOMAIN, {})
+
+    # Create manager with options from config entry
+    manager = TemporaryEntityManager(
+        hass,
+        min_persist_duration=entry.options.get(
+            CONF_MIN_PERSIST_DURATION, DEFAULT_MIN_PERSIST_DURATION
+        ),
+        cleanup_interval=entry.options.get(
+            CONF_CLEANUP_INTERVAL, DEFAULT_CLEANUP_INTERVAL
+        ),
+        finalized_grace_period=entry.options.get(
+            CONF_FINALIZED_GRACE_PERIOD, DEFAULT_FINALIZED_GRACE_PERIOD
+        ),
+        inactive_max_age=entry.options.get(
+            CONF_INACTIVE_MAX_AGE, DEFAULT_INACTIVE_MAX_AGE
+        ),
+    )
+    hass.data[DOMAIN]["manager"] = manager
+
+    # Start cleanup task
+    await manager.async_start()
+
+    # Get or create timer EntityComponent
+    if "entity_components" not in hass.data:
+        hass.data["entity_components"] = {}
+
+    if "timer" not in hass.data["entity_components"]:
+        timer_component = entity_component.EntityComponent(_LOGGER, "timer", hass)
+        hass.data["entity_components"]["timer"] = timer_component
+    else:
+        timer_component = hass.data["entity_components"]["timer"]
+
+    # Store component for later use
+    hass.data[DOMAIN]["timer_component"] = timer_component
+
+    # Restore entities from registry
+    await _restore_timer_entities(hass, entry, timer_component)
+
+    # Register domain services
+    _register_services(hass, manager)
+
     return True
 
 
@@ -259,21 +320,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     manager = hass.data[DOMAIN]["manager"]
     await manager.async_stop()
 
-    # Unload platforms
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    # Clean up stored data
+    hass.data[DOMAIN].pop("manager")
+    hass.data[DOMAIN].pop("timer_component", None)
 
-    if unload_ok:
-        hass.data[DOMAIN].pop("manager")
-        # Unregister services
-        hass.services.async_remove(DOMAIN, SERVICE_CREATE_TEMPORARY)
-        hass.services.async_remove(DOMAIN, SERVICE_START)
-        hass.services.async_remove(DOMAIN, SERVICE_CANCEL)
-        hass.services.async_remove(DOMAIN, SERVICE_FINISH)
-        hass.services.async_remove(DOMAIN, SERVICE_DELETE)
-        hass.services.async_remove(DOMAIN, SERVICE_PAUSE)
-        hass.services.async_remove(DOMAIN, SERVICE_RESUME)
+    # Unregister services
+    hass.services.async_remove(DOMAIN, SERVICE_CREATE_TEMPORARY)
+    hass.services.async_remove(DOMAIN, SERVICE_START)
+    hass.services.async_remove(DOMAIN, SERVICE_CANCEL)
+    hass.services.async_remove(DOMAIN, SERVICE_FINISH)
+    hass.services.async_remove(DOMAIN, SERVICE_DELETE)
+    hass.services.async_remove(DOMAIN, SERVICE_PAUSE)
+    hass.services.async_remove(DOMAIN, SERVICE_RESUME)
 
-    return unload_ok
+    return True
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
