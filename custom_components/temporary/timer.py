@@ -39,7 +39,9 @@ def _parse_timedelta(time_str: str) -> int:
             return 0
         hours, minutes, seconds = parts
         return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
-    except ValueError, AttributeError:
+    except ValueError:
+        return 0
+    except AttributeError:
         return 0
 
 
