@@ -62,6 +62,7 @@ class TemporaryEntity(RestoreEntity, Entity):
             if self._expected_duration
             else None,
             "state": self._state,
+            "temporary": True,
         }
 
         if self._finalized_at:
