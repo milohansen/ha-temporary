@@ -3,10 +3,8 @@
     "ms-python.python",
     "ms-python.vscode-pylance",
     "charliermarsh.ruff",
-    "ms-python.mypy-type-checker",
-    "usernamehw.errorlens",
-    "github.vscode-github-actions",
     "redhat.vscode-yaml",
-    "tamasfe.even-better-toml"
+    "tamasfe.even-better-toml",
+    "usernamehw.errorlens"
   ]
 }
