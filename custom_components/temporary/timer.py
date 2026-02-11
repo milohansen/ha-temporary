@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import logging
 from typing import Any
 
 import voluptuous as vol
-import whenever
 
 from homeassistant.components.timer import DOMAIN as TIMER_DOMAIN
 from homeassistant.config_entries import ConfigEntry
@@ -167,15 +167,15 @@ class TemporaryTimer(TemporaryEntity):
         """Initialize timer."""
         super().__init__(hass, unique_id, name, expected_duration=duration)
         self._duration_s: int = duration
-        self._remaining: whenever.TimeDelta = whenever.seconds(duration)
-        self._start_time: whenever.Instant | None = None
-        self._end_time: whenever.Instant | None = None
+        self._remaining = timedelta(seconds=duration)
+        self._start_time: datetime | None = None
+        self._end_time: datetime | None = None
         self._finish_unsub = None
 
     def set_duration(self, duration: int) -> None:
         """Set the duration and remaining time."""
         self._duration_s = duration
-        self._remaining = whenever.seconds(duration)
+        self._remaining = timedelta(seconds=duration)
 
     def _update_state_attr(self) -> None:
         """Update the state attribute based on internal state."""
@@ -197,13 +197,13 @@ class TemporaryTimer(TemporaryEntity):
         # Calculate remaining time on-demand if timer is active
         remaining = self._remaining
         if self.is_active and self._end_time:
-            now = whenever.Instant.now()
+            now = dt_util.utcnow()
             remaining = self._end_time - now
-            if remaining.in_seconds() < 0:
-                remaining = whenever.seconds(0)
+            if remaining.total_seconds() < 0:
+                remaining = timedelta(0)
 
         # Round to 2 decimal places for display
-        remaining_seconds = round(remaining.in_seconds(), 2)
+        remaining_seconds = round(remaining.total_seconds(), 2)
 
         self._attr_extra_state_attributes.update(
             {
@@ -214,7 +214,7 @@ class TemporaryTimer(TemporaryEntity):
 
         if self._end_time:
             self._attr_extra_state_attributes[ATTR_FINISHES_AT] = (
-                self._end_time.py_datetime().isoformat()
+                self._end_time.isoformat()
             )
 
     async def start(self) -> None:
@@ -223,7 +223,7 @@ class TemporaryTimer(TemporaryEntity):
         self._cancel_timers()
 
         # Set start and end times
-        self._start_time = whenever.Instant.now()
+        self._start_time = dt_util.utcnow()
         self._end_time = self._start_time + self._remaining
 
         # Mark as active
@@ -232,13 +232,13 @@ class TemporaryTimer(TemporaryEntity):
 
         # Schedule finish at end_time (convert to Python datetime)
         self._finish_unsub = async_track_point_in_time(
-            self.hass, self._async_finish_callback, self._end_time.py_datetime()
+            self.hass, self._async_finish_callback, self._end_time
         )
 
         _LOGGER.debug(
             "Started timer %s for %s seconds",
             self.entity_id,
-            self._remaining.in_seconds(),
+            self._remaining.total_seconds(),
         )
 
     async def pause(self) -> None:
@@ -251,14 +251,14 @@ class TemporaryTimer(TemporaryEntity):
 
         # Calculate remaining time with 2 decimal precision
         if self._end_time:
-            now = whenever.Instant.now()
+            now = dt_util.utcnow()
             remaining_delta = self._end_time - now
-            if remaining_delta.in_seconds() < 0:
-                self._remaining = whenever.seconds(0)
+            if remaining_delta.total_seconds() < 0:
+                self._remaining = timedelta(0)
             else:
                 # Round to 2 decimal places
-                self._remaining = whenever.seconds(
-                    round(remaining_delta.in_seconds(), 2)
+                self._remaining = timedelta(
+                    seconds=round(remaining_delta.total_seconds(), 2)
                 )
 
         # Mark as paused
@@ -268,7 +268,7 @@ class TemporaryTimer(TemporaryEntity):
         _LOGGER.debug(
             "Paused timer %s with %s seconds remaining",
             self.entity_id,
-            self._remaining.in_seconds(),
+            self._remaining.total_seconds(),
         )
 
     async def resume(self) -> None:
@@ -281,7 +281,7 @@ class TemporaryTimer(TemporaryEntity):
     async def cancel(self) -> None:
         """Cancel the timer."""
         self._cancel_timers()
-        self._remaining = whenever.seconds(0)
+        self._remaining = timedelta(0)
         self._mark_finalized()
         self._update_state_attr()
         _LOGGER.debug("Cancelled timer %s", self.entity_id)
@@ -289,7 +289,7 @@ class TemporaryTimer(TemporaryEntity):
     async def finish(self) -> None:
         """Finish the timer."""
         self._cancel_timers()
-        self._remaining = whenever.seconds(0)
+        self._remaining = timedelta(0)
         self._mark_finalized()
         self._update_state_attr()
         _LOGGER.info("Timer %s finished", self.entity_id)
@@ -321,20 +321,20 @@ class TemporaryTimer(TemporaryEntity):
 
         if old_state.attributes.get(ATTR_REMAINING):
             remaining_seconds = float(old_state.attributes[ATTR_REMAINING])
-            self._remaining = whenever.seconds(remaining_seconds)
+            self._remaining = timedelta(seconds=remaining_seconds)
 
         if old_state.attributes.get("start_time"):
             start_dt = dt_util.parse_datetime(old_state.attributes["start_time"])
             if start_dt:
-                self._start_time = whenever.Instant.from_py_datetime(start_dt)
+                self._start_time = start_dt
 
         if old_state.attributes.get(ATTR_FINISHES_AT):
             end_dt = dt_util.parse_datetime(old_state.attributes[ATTR_FINISHES_AT])
             if end_dt:
-                self._end_time = whenever.Instant.from_py_datetime(end_dt)
+                self._end_time = end_dt
 
         # If timer was active when saved, resume it
-        if old_state.state == STATE_ACTIVE and self._remaining.in_seconds() > 0:
+        if old_state.state == STATE_ACTIVE and self._remaining.total_seconds() > 0:
             self.hass.async_create_task(self.start())
         else:
             self._update_state_attr()

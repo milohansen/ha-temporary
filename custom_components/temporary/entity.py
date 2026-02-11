@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers.entity import Entity
@@ -20,6 +20,9 @@ from .const import (
     STATE_FINALIZED,
     STATE_PAUSED,
 )
+
+if TYPE_CHECKING:
+    from .manager import TemporaryEntityManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,7 +47,11 @@ class TemporaryEntity(RestoreEntity, Entity):
         # Temporary entity metadata
         self._created_at: datetime = dt_util.utcnow()
         self._finalized_at: datetime | None = None
-        self._expected_duration = expected_duration  # seconds
+        self._expected_duration = (
+            timedelta(seconds=expected_duration)
+            if expected_duration is not None
+            else None
+        )
         self._state: str = STATE_ACTIVE
 
     def _update_extra_state_attributes(self) -> None:
@@ -63,7 +70,7 @@ class TemporaryEntity(RestoreEntity, Entity):
     @property
     def should_persist(self) -> bool:
         """Check if entity should be persisted based on duration."""
-        manager = self.hass.data[DOMAIN]["manager"]
+        manager: TemporaryEntityManager = self.hass.data[DOMAIN]["manager"]
 
         # If we don't know duration, persist to be safe
         if self._expected_duration is None:
@@ -88,18 +95,17 @@ class TemporaryEntity(RestoreEntity, Entity):
 
     def should_cleanup(self) -> bool:
         """Determine if entity should be cleaned up."""
-        manager = self.hass.data[DOMAIN]["manager"]
+        manager: TemporaryEntityManager = self.hass.data[DOMAIN]["manager"]
         now = dt_util.utcnow()
 
         # Finalized entities: cleanup after grace period
         if self.is_finalized and self._finalized_at:
-            return (
-                now - self._finalized_at
-            ).total_seconds() >= manager.finalized_grace_period
+            age = now - self._finalized_at
+            return age >= manager.finalized_grace_period
 
         # Paused entities: cleanup after max age
         if self.is_paused:
-            age = (now - self._created_at).total_seconds()
+            age = now - self._created_at
             return age >= manager.inactive_max_age
 
         return False
@@ -143,7 +149,7 @@ class TemporaryEntity(RestoreEntity, Entity):
             self._restore_from_old_state(old_state)
 
         # Register with manager
-        manager = self.hass.data[DOMAIN]["manager"]
+        manager: TemporaryEntityManager = self.hass.data[DOMAIN]["manager"]
         manager.register_entity(self)
 
         # Log if entity won't persist
@@ -156,7 +162,7 @@ class TemporaryEntity(RestoreEntity, Entity):
 
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity will be removed from hass."""
-        manager = self.hass.data[DOMAIN]["manager"]
+        manager: TemporaryEntityManager = self.hass.data[DOMAIN]["manager"]
         manager.unregister_entity(self.entity_id)
 
     def _restore_from_old_state(self, old_state: State) -> None:

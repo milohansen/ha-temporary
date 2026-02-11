@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv, entity_component
-import homeassistant.util.dt as dt_util
+import homeassistant.util.ulid as ulid_util
 
 from .const import (
     CONF_CLEANUP_INTERVAL,
@@ -74,7 +74,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         from .timer import TemporaryTimer  # noqa: PLC0415
 
         # Create unique ID based on timestamp
-        unique_id = f"timer_{dt_util.utcnow().timestamp()}"
+        unique_id = f"timer_{ulid_util.ulid_now()}"
 
         # Create timer entity
         timer = TemporaryTimer(

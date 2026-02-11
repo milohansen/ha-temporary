@@ -29,10 +29,10 @@ class TemporaryEntityManager:
     ):
         """Initialize manager."""
         self.hass = hass
-        self.min_persist_duration = min_persist_duration
-        self.cleanup_interval = cleanup_interval
-        self.finalized_grace_period = finalized_grace_period
-        self.inactive_max_age = inactive_max_age
+        self.min_persist_duration = timedelta(seconds=min_persist_duration)
+        self.cleanup_interval = timedelta(seconds=cleanup_interval)
+        self.finalized_grace_period = timedelta(seconds=finalized_grace_period)
+        self.inactive_max_age = timedelta(seconds=inactive_max_age)
 
         self._entities: dict[str, TemporaryEntity] = {}
         self._cleanup_unsub = None
@@ -54,7 +54,7 @@ class TemporaryEntityManager:
         self._cleanup_unsub = async_track_time_interval(
             self.hass,
             self._async_cleanup_task,
-            timedelta(seconds=self.cleanup_interval),
+            self.cleanup_interval,
         )
         _LOGGER.info("Temporary entity cleanup task started")
 
