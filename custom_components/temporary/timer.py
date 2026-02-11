@@ -117,7 +117,7 @@ class TemporaryTimer(TemporaryEntity):
             self._remaining.total_seconds(),
         )
 
-    async def pause(self) -> None:
+    async def async_pause(self) -> None:
         """Pause the timer."""
         if not self.is_active:
             return
@@ -147,14 +147,14 @@ class TemporaryTimer(TemporaryEntity):
             self._remaining.total_seconds(),
         )
 
-    async def resume(self) -> None:
+    async def async_resume(self) -> None:
         """Resume the timer."""
         if not self.is_paused:
             return
 
         await self.start()
 
-    async def cancel(self) -> None:
+    async def async_cancel(self) -> None:
         """Cancel the timer."""
         self._cancel_timers()
         self._remaining = timedelta(0)
@@ -162,7 +162,7 @@ class TemporaryTimer(TemporaryEntity):
         self._update_state_attr()
         _LOGGER.debug("Cancelled timer %s", self.entity_id)
 
-    async def finish(self) -> None:
+    async def async_finish(self) -> None:
         """Finish the timer."""
         self._cancel_timers()
         self._remaining = timedelta(0)
@@ -179,7 +179,7 @@ class TemporaryTimer(TemporaryEntity):
     @callback
     def _async_finish_callback(self, now: Any) -> None:
         """Callback when timer finishes."""
-        self.hass.async_create_task(self.finish())
+        self.hass.async_create_task(self.async_finish())
 
     def _cancel_timers(self) -> None:
         """Cancel all timer callbacks."""

@@ -143,11 +143,11 @@ def _register_services(
                 return
 
             # Check if entity has cancel method (timer specific)
-            if not hasattr(entity, "cancel"):
+            if not hasattr(entity, "async_cancel"):
                 _LOGGER.error("Entity %s does not support cancel", entity_id)
                 return
 
-            await entity.cancel()  # type: ignore[attr-defined]
+            await entity.async_cancel()  # type: ignore[attr-defined]
         except (KeyError, ValueError, AttributeError) as err:
             _LOGGER.error("Error canceling entity %s: %s", entity_id, err)
 
@@ -162,11 +162,11 @@ def _register_services(
                 return
 
             # Check if entity has finish method (timer specific)
-            if not hasattr(entity, "finish"):
+            if not hasattr(entity, "async_finish"):
                 _LOGGER.error("Entity %s does not support finish", entity_id)
                 return
 
-            await entity.finish()  # type: ignore[attr-defined]
+            await entity.async_finish()  # type: ignore[attr-defined]
         except (KeyError, ValueError, AttributeError) as err:
             _LOGGER.error("Error finishing entity %s: %s", entity_id, err)
 
@@ -186,10 +186,10 @@ def _register_services(
             if not entity:
                 _LOGGER.error("Entity %s not found", entity_id)
                 return
-            if not hasattr(entity, "mark_paused"):
+            if not hasattr(entity, "async_pause"):
                 _LOGGER.error("Entity %s does not support pause", entity_id)
                 return
-            entity.mark_paused()
+            await entity.async_pause()  # type: ignore[attr-defined]
         except (KeyError, ValueError, AttributeError) as err:
             _LOGGER.error("Error pausing entity %s: %s", entity_id, err)
 
@@ -201,10 +201,10 @@ def _register_services(
             if not entity:
                 _LOGGER.error("Entity %s not found", entity_id)
                 return
-            if not hasattr(entity, "mark_active"):
+            if not hasattr(entity, "async_resume"):
                 _LOGGER.error("Entity %s does not support resume", entity_id)
                 return
-            entity.mark_active()
+            await entity.async_resume()  # type: ignore[attr-defined]
         except (KeyError, ValueError, AttributeError) as err:
             _LOGGER.error("Error resuming entity %s: %s", entity_id, err)
 
