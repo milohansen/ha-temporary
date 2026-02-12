@@ -58,6 +58,18 @@
   "editor.tabSize": 4,
   "editor.insertSpaces": true,
   "chat.tools.terminal.autoApprove": {
-    "ruff": true
+    "ruff": true,
+    "/^cd /home/miloh/repos/ha-temporary && source \\.venv/bin/activate && ruff check custom_components/temporary/$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^cd /home/miloh/repos/ha-temporary && source \\.venv/bin/activate && ruff format custom_components/temporary/$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^cd /home/miloh/repos/ha-temporary && source \\.venv/bin/activate && ruff check --fix custom_components/temporary/$/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
   }
 }

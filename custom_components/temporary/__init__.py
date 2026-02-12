@@ -9,11 +9,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import (
-    config_validation as cv,
-    entity_component,
-    entity_registry as er,
-)
+from homeassistant.helpers import config_validation as cv
 import homeassistant.util.ulid as ulid_util
 
 from .const import (
@@ -39,43 +35,7 @@ from .manager import TemporaryEntityManager
 _LOGGER = logging.getLogger(__name__)
 
 
-async def _restore_timer_entities(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    timer_component: entity_component.EntityComponent,
-) -> None:
-    """Restore timer entities from registry."""
-    ent_reg = er.async_get(hass)
-    entries = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
-
-    if not entries:
-        return
-
-    # Import here to avoid circular dependency at module level
-    from .timer import TemporaryTimer  # noqa: PLC0415
-
-    entities_to_restore: list[TemporaryTimer] = []
-    for ent_entry in entries:
-        if ent_entry.domain == "timer":
-            # Extract name from entity_id or use unique_id
-            name = ent_entry.original_name or ent_entry.entity_id.split(".")[-1]
-
-            # Create timer entity with stored unique_id
-            timer = TemporaryTimer(
-                hass,
-                unique_id=ent_entry.unique_id,
-                name=name,
-                duration=60,  # Default, will be restored from state
-            )
-            entities_to_restore.append(timer)
-            _LOGGER.debug("Restoring timer entity: %s", ent_entry.entity_id)
-
-    if entities_to_restore:
-        await timer_component.async_add_entities(entities_to_restore)
-        _LOGGER.info("Restored %d timer entities", len(entities_to_restore))
-
-
-def _register_services(
+def _register_services(  # noqa: C901
     hass: HomeAssistant,
     manager: TemporaryEntityManager,
 ) -> None:
@@ -92,17 +52,27 @@ def _register_services(
         # Create unique ID based on timestamp
         unique_id = f"timer_{ulid_util.ulid_now()}"
 
+        # Get the async_add_entities callback from platform
+        async_add_entities = hass.data[DOMAIN].get("async_add_timer_entities")
+
+        if not async_add_entities:
+            _LOGGER.error("Timer platform not set up, cannot create timer")
+            return
+
+        # Get the config entry ID
+        config_entry_id = hass.data[DOMAIN].get("config_entry_id")
+
         # Create timer entity
         timer = TemporaryTimer(
             hass,
             unique_id=unique_id,
             name=name,
             duration=duration,
+            config_entry_id=config_entry_id,
         )
 
-        # Get the timer component from stored data
-        timer_component = hass.data[DOMAIN]["timer_component"]
-        await timer_component.async_add_entities([timer])
+        # Add entity through platform
+        async_add_entities([timer])
 
         # Start the timer
         await timer.start()
@@ -289,25 +259,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
     )
     hass.data[DOMAIN]["manager"] = manager
+    hass.data[DOMAIN]["config_entry_id"] = entry.entry_id
 
     # Start cleanup task
     await manager.async_start()
 
-    # Get or create timer EntityComponent
-    if "entity_components" not in hass.data:
-        hass.data["entity_components"] = {}
+    # Forward to timer platform for proper entity registry integration
+    await hass.config_entries.async_forward_entry_setups(entry, ["timer"])
 
-    if "timer" not in hass.data["entity_components"]:
-        timer_component = entity_component.EntityComponent(_LOGGER, "timer", hass)
-        hass.data["entity_components"]["timer"] = timer_component
-    else:
-        timer_component = hass.data["entity_components"]["timer"]
-
-    # Store component for later use
-    hass.data[DOMAIN]["timer_component"] = timer_component
-
-    # Restore entities from registry
-    await _restore_timer_entities(hass, entry, timer_component)
+    _LOGGER.debug("Temporary Entities setup complete with options: %s", entry)
 
     # Register domain services
     _register_services(hass, manager)
@@ -317,23 +277,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    manager = hass.data[DOMAIN]["manager"]
-    await manager.async_stop()
+    # Unload timer platform
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["timer"])
 
-    # Clean up stored data
-    hass.data[DOMAIN].pop("manager")
-    hass.data[DOMAIN].pop("timer_component", None)
+    if unload_ok:
+        manager = hass.data[DOMAIN]["manager"]
+        await manager.async_stop()
 
-    # Unregister services
-    hass.services.async_remove(DOMAIN, SERVICE_CREATE_TEMPORARY)
-    hass.services.async_remove(DOMAIN, SERVICE_START)
-    hass.services.async_remove(DOMAIN, SERVICE_CANCEL)
-    hass.services.async_remove(DOMAIN, SERVICE_FINISH)
-    hass.services.async_remove(DOMAIN, SERVICE_DELETE)
-    hass.services.async_remove(DOMAIN, SERVICE_PAUSE)
-    hass.services.async_remove(DOMAIN, SERVICE_RESUME)
+        # Clean up stored data
+        hass.data[DOMAIN].pop("manager")
+        hass.data[DOMAIN].pop("config_entry_id", None)
+        hass.data[DOMAIN].pop("async_add_timer_entities", None)
 
-    return True
+        # Unregister services
+        hass.services.async_remove(DOMAIN, SERVICE_CREATE_TEMPORARY)
+        hass.services.async_remove(DOMAIN, SERVICE_START)
+        hass.services.async_remove(DOMAIN, SERVICE_CANCEL)
+        hass.services.async_remove(DOMAIN, SERVICE_FINISH)
+        hass.services.async_remove(DOMAIN, SERVICE_DELETE)
+        hass.services.async_remove(DOMAIN, SERVICE_PAUSE)
+        hass.services.async_remove(DOMAIN, SERVICE_RESUME)
+
+    return unload_ok
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -18,6 +18,7 @@ from .const import (
     DOMAIN,
     STATE_ACTIVE,
     STATE_FINALIZED,
+    STATE_IDLE,
     STATE_PAUSED,
 )
 
@@ -38,11 +39,14 @@ class TemporaryEntity(RestoreEntity, Entity):
         unique_id: str,
         name: str,
         expected_duration: int | None = None,
+        config_entry_id: str | None = None,
     ) -> None:
         """Initialize temporary entity."""
         self.hass = hass
         self._attr_unique_id = unique_id
         self._attr_name = name
+        if config_entry_id:
+            self._attr_config_entry_id = config_entry_id
 
         # Temporary entity metadata
         self._created_at: datetime = dt_util.utcnow()
@@ -170,6 +174,11 @@ class TemporaryEntity(RestoreEntity, Entity):
 
     def _restore_from_old_state(self, old_state: State) -> None:
         """Restore from previous state."""
+
+        _LOGGER.info(
+            f"Restoring state for {self.entity_id}: {old_state.state} with attributes {old_state.attributes}"  # noqa: G004
+        )
+
         # Restore timestamps
         if old_state.attributes.get("created_at"):
             parsed_time = dt_util.parse_datetime(old_state.attributes["created_at"])
@@ -186,5 +195,10 @@ class TemporaryEntity(RestoreEntity, Entity):
                 seconds=old_state.attributes["expected_duration"]
             )
 
-        # Restore state
-        self._state = old_state.state
+        # Restore state - map external states to internal states
+        state_mapping = {
+            STATE_IDLE: STATE_FINALIZED,
+            STATE_ACTIVE: STATE_ACTIVE,
+            STATE_PAUSED: STATE_PAUSED,
+        }
+        self._state = state_mapping.get(old_state.state, STATE_ACTIVE)
