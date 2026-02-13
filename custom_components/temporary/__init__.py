@@ -51,7 +51,7 @@ def _register_services(  # noqa: C901
         from .timer import TemporaryTimer  # noqa: PLC0415
 
         # Create unique ID based on timestamp
-        unique_id = f"timer_{ulid_util.ulid_now()}"
+        unique_id = f"timer_{ulid_util.ulid_now().lower()}"
 
         # Get the entity component
         component = hass.data[DOMAIN].get("component")
