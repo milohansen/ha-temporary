@@ -8,7 +8,7 @@ delete:
       name: Entity ID
       description: The entity to delete.
       required: true
-      example: "timer.temporary_timer_12345"
+      example: "temporary.timer_12345"
       selector:
         entity:
           integration: temporary
@@ -21,7 +21,7 @@ pause:
       name: Entity ID
       description: The entity to pause.
       required: true
-      example: "timer.temporary_timer_12345"
+      example: "temporary.timer_12345"
       selector:
         entity:
           integration: temporary
@@ -34,7 +34,7 @@ resume:
       name: Entity ID
       description: The entity to resume.
       required: true
-      example: "timer.temporary_timer_12345"
+      example: "temporary.timer_12345"
       selector:
         entity:
           integration: temporary
@@ -69,11 +69,11 @@ start:
       name: Entity ID
       description: The timer entity to start.
       required: true
-      example: "timer.temporary_timer_12345"
+      example: "temporary.timer_12345"
       selector:
         entity:
           integration: temporary
-          domain: timer
+          domain: temporary
     duration:
       name: Duration
       description: Optional new duration in seconds. If not provided, uses the timer's current duration.
@@ -93,11 +93,11 @@ cancel:
       name: Entity ID
       description: The timer entity to cancel.
       required: true
-      example: "timer.temporary_timer_12345"
+      example: "temporary.timer_12345"
       selector:
         entity:
           integration: temporary
-          domain: timer
+          domain: temporary
 
 finish:
   name: Finish Timer
@@ -107,8 +107,8 @@ finish:
       name: Entity ID
       description: The timer entity to finish.
       required: true
-      example: "timer.temporary_timer_12345"
+      example: "temporary.timer_12345"
       selector:
         entity:
           integration: temporary
-          domain: timer
+          domain: temporary

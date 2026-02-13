@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.typing import StateType
 import homeassistant.util.dt as dt_util
 
 from .const import (
@@ -33,6 +34,18 @@ class TemporaryEntity(RestoreEntity, Entity):
 
     _attr_should_poll = False
 
+    def _set_internal_state(self, state: str) -> None:
+        """Set internal state and sync HA-visible state.
+
+        Maps internal STATE_FINALIZED to STATE_IDLE for HA presentation,
+        since finalized is an internal lifecycle concept.
+        """
+        self._state = state
+        if state == STATE_FINALIZED:
+            self._attr_state = STATE_IDLE
+        else:
+            self._attr_state = state
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -45,6 +58,7 @@ class TemporaryEntity(RestoreEntity, Entity):
         self.hass = hass
         self._attr_unique_id = unique_id
         self._attr_name = name
+        self.entity_id = f"{DOMAIN}.{unique_id}"
         if config_entry_id:
             self._attr_config_entry_id = config_entry_id
 
@@ -57,6 +71,7 @@ class TemporaryEntity(RestoreEntity, Entity):
             else None
         )
         self._state: str = STATE_ACTIVE
+        self._attr_state: StateType = STATE_ACTIVE
 
     def _update_extra_state_attributes(self) -> None:
         """Update entity specific state attributes."""
@@ -66,7 +81,6 @@ class TemporaryEntity(RestoreEntity, Entity):
             if self._expected_duration
             else None,
             "state": self._state,
-            "temporary": True,
         }
 
         if self._finalized_at:
@@ -120,7 +134,7 @@ class TemporaryEntity(RestoreEntity, Entity):
     @callback
     def _mark_finalized(self) -> None:
         """Mark entity as finalized."""
-        self._state = STATE_FINALIZED
+        self._set_internal_state(STATE_FINALIZED)
         self._finalized_at = dt_util.utcnow()
         self._update_extra_state_attributes()
         self.async_write_ha_state()
@@ -128,14 +142,14 @@ class TemporaryEntity(RestoreEntity, Entity):
     @callback
     def _mark_paused(self) -> None:
         """Mark entity as paused."""
-        self._state = STATE_PAUSED
+        self._set_internal_state(STATE_PAUSED)
         self._update_extra_state_attributes()
         self.async_write_ha_state()
 
     @callback
     def _mark_active(self) -> None:
         """Mark entity as active."""
-        self._state = STATE_ACTIVE
+        self._set_internal_state(STATE_ACTIVE)
         self._update_extra_state_attributes()
         self.async_write_ha_state()
 
@@ -201,4 +215,4 @@ class TemporaryEntity(RestoreEntity, Entity):
             STATE_ACTIVE: STATE_ACTIVE,
             STATE_PAUSED: STATE_PAUSED,
         }
-        self._state = state_mapping.get(old_state.state, STATE_ACTIVE)
+        self._set_internal_state(state_mapping.get(old_state.state, STATE_ACTIVE))

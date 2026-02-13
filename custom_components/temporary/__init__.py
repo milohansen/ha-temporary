@@ -9,7 +9,8 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.helpers.entity_component import EntityComponent
 import homeassistant.util.ulid as ulid_util
 
 from .const import (
@@ -52,11 +53,11 @@ def _register_services(  # noqa: C901
         # Create unique ID based on timestamp
         unique_id = f"timer_{ulid_util.ulid_now()}"
 
-        # Get the async_add_entities callback from platform
-        async_add_entities = hass.data[DOMAIN].get("async_add_timer_entities")
+        # Get the entity component
+        component = hass.data[DOMAIN].get("component")
 
-        if not async_add_entities:
-            _LOGGER.error("Timer platform not set up, cannot create timer")
+        if not component:
+            _LOGGER.error("Entity component not set up, cannot create timer")
             return
 
         # Get the config entry ID
@@ -71,8 +72,8 @@ def _register_services(  # noqa: C901
             config_entry_id=config_entry_id,
         )
 
-        # Add entity through platform
-        async_add_entities([timer])
+        # Add entity through the entity component
+        await component.async_add_entities([timer])
 
         # Start the timer
         await timer.start()
@@ -117,7 +118,7 @@ def _register_services(  # noqa: C901
                 _LOGGER.error("Entity %s does not support cancel", entity_id)
                 return
 
-            await entity.async_cancel()  # type: ignore[attr-defined]
+            entity.async_cancel()  # type: ignore[attr-defined]
         except (KeyError, ValueError, AttributeError) as err:
             _LOGGER.error("Error canceling entity %s: %s", entity_id, err)
 
@@ -136,7 +137,7 @@ def _register_services(  # noqa: C901
                 _LOGGER.error("Entity %s does not support finish", entity_id)
                 return
 
-            await entity.async_finish()  # type: ignore[attr-defined]
+            entity.async_finish()  # type: ignore[attr-defined]
         except (KeyError, ValueError, AttributeError) as err:
             _LOGGER.error("Error finishing entity %s: %s", entity_id, err)
 
@@ -159,7 +160,7 @@ def _register_services(  # noqa: C901
             if not hasattr(entity, "async_pause"):
                 _LOGGER.error("Entity %s does not support pause", entity_id)
                 return
-            await entity.async_pause()  # type: ignore[attr-defined]
+            entity.async_pause()  # type: ignore[attr-defined]
         except (KeyError, ValueError, AttributeError) as err:
             _LOGGER.error("Error pausing entity %s: %s", entity_id, err)
 
@@ -242,6 +243,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up temporary entities from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
+    # Create entity component for the temporary domain
+    component = EntityComponent(_LOGGER, DOMAIN, hass)
+    hass.data[DOMAIN]["component"] = component
+
     # Create manager with options from config entry
     manager = TemporaryEntityManager(
         hass,
@@ -264,8 +269,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Start cleanup task
     await manager.async_start()
 
-    # Forward to timer platform for proper entity registry integration
-    await hass.config_entries.async_forward_entry_setups(entry, ["timer"])
+    # Restore existing entities from entity registry
+    # Import here to avoid circular dependency at module level
+    from .timer import TemporaryTimer  # noqa: PLC0415
+
+    ent_reg = er.async_get(hass)
+
+    # Query by domain since EntityComponent entities may not be associated
+    # with a config entry in the registry. We own the 'temporary' domain,
+    # so all entities in it belong to this integration.
+    entities_to_restore: list[TemporaryTimer] = []
+    for ent_entry in list(ent_reg.entities.values()):
+        if ent_entry.domain != DOMAIN:
+            continue
+
+        # Route to appropriate entity class based on unique_id prefix
+        if ent_entry.unique_id and ent_entry.unique_id.startswith("timer_"):
+            name = ent_entry.original_name or ent_entry.entity_id.split(".")[-1]
+
+            timer = TemporaryTimer(
+                hass,
+                unique_id=ent_entry.unique_id,
+                name=name,
+                duration=60,  # Default, will be restored from state
+                config_entry_id=entry.entry_id,
+            )
+            entities_to_restore.append(timer)
+            _LOGGER.debug("Restoring timer entity: %s", ent_entry.entity_id)
+
+    # Add restored entities to the component
+    if entities_to_restore:
+        await component.async_add_entities(entities_to_restore)
+        _LOGGER.info("Restored %d temporary entities", len(entities_to_restore))
+    else:
+        _LOGGER.debug("No temporary entities found in registry to restore")
 
     _LOGGER.debug("Temporary Entities setup complete with options: %s", entry)
 
@@ -277,28 +314,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    # Unload timer platform
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["timer"])
+    # Stop the manager
+    manager = hass.data[DOMAIN]["manager"]
+    await manager.async_stop()
 
-    if unload_ok:
-        manager = hass.data[DOMAIN]["manager"]
-        await manager.async_stop()
+    # Clean up stored data
+    hass.data[DOMAIN].pop("manager")
+    hass.data[DOMAIN].pop("config_entry_id", None)
+    hass.data[DOMAIN].pop("component", None)
 
-        # Clean up stored data
-        hass.data[DOMAIN].pop("manager")
-        hass.data[DOMAIN].pop("config_entry_id", None)
-        hass.data[DOMAIN].pop("async_add_timer_entities", None)
+    # Unregister services
+    hass.services.async_remove(DOMAIN, SERVICE_CREATE_TEMPORARY)
+    hass.services.async_remove(DOMAIN, SERVICE_START)
+    hass.services.async_remove(DOMAIN, SERVICE_CANCEL)
+    hass.services.async_remove(DOMAIN, SERVICE_FINISH)
+    hass.services.async_remove(DOMAIN, SERVICE_DELETE)
+    hass.services.async_remove(DOMAIN, SERVICE_PAUSE)
+    hass.services.async_remove(DOMAIN, SERVICE_RESUME)
 
-        # Unregister services
-        hass.services.async_remove(DOMAIN, SERVICE_CREATE_TEMPORARY)
-        hass.services.async_remove(DOMAIN, SERVICE_START)
-        hass.services.async_remove(DOMAIN, SERVICE_CANCEL)
-        hass.services.async_remove(DOMAIN, SERVICE_FINISH)
-        hass.services.async_remove(DOMAIN, SERVICE_DELETE)
-        hass.services.async_remove(DOMAIN, SERVICE_PAUSE)
-        hass.services.async_remove(DOMAIN, SERVICE_RESUME)
-
-    return unload_ok
+    return True
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -6,12 +6,8 @@ from datetime import datetime, timedelta
 import logging
 from typing import Any
 
-from homeassistant.components.timer import Timer
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, State, callback
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_time
 import homeassistant.util.dt as dt_util
 
@@ -19,55 +15,13 @@ from .const import (
     ATTR_DURATION,
     ATTR_FINISHES_AT,
     ATTR_REMAINING,
-    DOMAIN,
     STATE_ACTIVE,
-    STATE_FINALIZED,
     STATE_IDLE,
     STATE_PAUSED,
 )
 from .entity import TemporaryEntity
 
 _LOGGER = logging.getLogger(__name__)
-
-
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up timer platform for config entry."""
-    # Store the add_entities callback for later use when creating timers dynamically
-    if DOMAIN not in hass.data:
-        hass.data[DOMAIN] = {}
-
-    hass.data[DOMAIN]["async_add_timer_entities"] = async_add_entities
-
-    # Restore existing timer entities from entity registry
-    ent_reg = er.async_get(hass)
-    entries = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
-
-    entities_to_restore: list[TemporaryTimer] = []
-    for ent_entry in entries:
-        if ent_entry.domain == "timer":
-            # Extract name from entity_id or use unique_id
-            name = ent_entry.original_name or ent_entry.entity_id.split(".")[-1]
-
-            # Create timer entity with stored unique_id
-            timer = TemporaryTimer(
-                hass,
-                unique_id=ent_entry.unique_id,
-                name=name,
-                duration=60,  # Default, will be restored from state
-                config_entry_id=entry.entry_id,
-            )
-            entities_to_restore.append(timer)
-            _LOGGER.debug("Restoring timer entity: %s", ent_entry.entity_id)
-
-    if entities_to_restore:
-        async_add_entities(entities_to_restore)
-        _LOGGER.info("Restored %d timer entities", len(entities_to_restore))
-    else:
-        _LOGGER.debug("No timer entities to restore for entry_id: %s", entry.entry_id)
 
 
 def _format_timedelta(delta: timedelta) -> str:
@@ -92,8 +46,10 @@ def _parse_timedelta(time_str: str) -> int:
         return 0
 
 
-class TemporaryTimer(TemporaryEntity, Timer):
+class TemporaryTimer(TemporaryEntity):
     """Temporary timer entity."""
+
+    _attr_icon = "mdi:timer"
 
     def __init__(
         self,
@@ -117,34 +73,12 @@ class TemporaryTimer(TemporaryEntity, Timer):
         self._start_time: datetime | None = None
         self._end_time: datetime | None = None
         self._finish_unsub = None
-
-        # Set up config to satisfy Timer interface, even though we manage state internally
-        self._config = {
-            "id": unique_id,
-            "name": "temporary_" + name,
-            "duration": _format_timedelta(self._remaining),
-        }
-        self.editable = True
-        self._state = STATE_IDLE
-        self._attr_state = STATE_IDLE
-        self._configured_duration = self._remaining
-        self._running_duration = self._remaining
-        self._end = self._end_time
-        self._restore = self.should_persist
+        self._set_internal_state(STATE_IDLE)
 
     def set_duration(self, duration: int) -> None:
         """Set the duration and remaining time."""
         self._duration_s = duration
         self._remaining = timedelta(seconds=duration)
-
-    def _update_state_attr(self) -> None:
-        """Update the state attribute based on internal state."""
-        if self._state == STATE_FINALIZED:
-            self._attr_state = STATE_IDLE
-        elif self._state == STATE_PAUSED:
-            self._attr_state = STATE_PAUSED
-        else:
-            self._attr_state = STATE_ACTIVE
 
     def _update_extra_state_attributes(self) -> None:
         """Update extra state attributes."""
@@ -188,7 +122,6 @@ class TemporaryTimer(TemporaryEntity, Timer):
 
         # Mark as active
         self._mark_active()
-        self._update_state_attr()
 
         # Schedule finish at end_time (convert to Python datetime)
         self._finish_unsub = async_track_point_in_time(
@@ -223,7 +156,6 @@ class TemporaryTimer(TemporaryEntity, Timer):
 
         # Mark as paused
         self._mark_paused()
-        self._update_state_attr()
 
         _LOGGER.debug(
             "Paused timer %s with %s seconds remaining",
@@ -243,7 +175,6 @@ class TemporaryTimer(TemporaryEntity, Timer):
         self._cancel_timers()
         self._remaining = timedelta(0)
         self._mark_finalized()
-        self._update_state_attr()
         _LOGGER.debug("Cancelled timer %s", self.entity_id)
 
     def async_finish(self) -> None:
@@ -251,7 +182,6 @@ class TemporaryTimer(TemporaryEntity, Timer):
         self._cancel_timers()
         self._remaining = timedelta(0)
         self._mark_finalized()
-        self._update_state_attr()
         _LOGGER.info("Timer %s finished", self.entity_id)
 
         # Fire event for automations
@@ -284,15 +214,6 @@ class TemporaryTimer(TemporaryEntity, Timer):
             else:
                 self._duration_s = int(duration_val)
 
-        if old_state.attributes.get(ATTR_REMAINING):
-            remaining_val = old_state.attributes[ATTR_REMAINING]
-            # Handle both formatted string (H:MM:SS) and raw int/float
-            if isinstance(remaining_val, str):
-                remaining_seconds = _parse_timedelta(remaining_val)
-            else:
-                remaining_seconds = float(remaining_val)
-            self._remaining = timedelta(seconds=remaining_seconds)
-
         if old_state.attributes.get("start_time"):
             start_dt = dt_util.parse_datetime(old_state.attributes["start_time"])
             if start_dt:
@@ -303,15 +224,29 @@ class TemporaryTimer(TemporaryEntity, Timer):
             if end_dt:
                 self._end_time = end_dt
 
-        # If timer was active when saved, resume it
-        if (
-            old_state.state == STATE_ACTIVE
-            and self._remaining
-            and self._remaining.total_seconds() > 0
-        ):
-            self.hass.async_create_task(self.start())
+        # Restore based on saved state
+        if old_state.state == STATE_ACTIVE and self._end_time:
+            # For active timers, derive remaining from finishes_at
+            now = dt_util.utcnow()
+            remaining = self._end_time - now
+            if remaining.total_seconds() > 0:
+                self._remaining = remaining
+                self.hass.async_create_task(self.start())
+            else:
+                # Timer expired during downtime — finish immediately
+                self._remaining = timedelta(0)
+                self.async_finish()
+        elif old_state.state == STATE_PAUSED:
+            # Only set _remaining from saved attribute for paused timers
+            if old_state.attributes.get(ATTR_REMAINING):
+                remaining_val = old_state.attributes[ATTR_REMAINING]
+                if isinstance(remaining_val, str):
+                    remaining_seconds = _parse_timedelta(remaining_val)
+                else:
+                    remaining_seconds = float(remaining_val)
+                self._remaining = timedelta(seconds=remaining_seconds)
+            self.async_write_ha_state()
         else:
-            self._update_state_attr()
             self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
