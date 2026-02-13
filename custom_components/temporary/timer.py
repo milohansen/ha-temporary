@@ -23,6 +23,13 @@ from .entity import TemporaryEntity
 
 _LOGGER = logging.getLogger(__name__)
 
+EVENT_TIMER_FINISHED = "timer.finished"
+EVENT_TIMER_CANCELLED = "timer.cancelled"
+EVENT_TIMER_CHANGED = "timer.changed"
+EVENT_TIMER_CREATED = "timer.created"
+EVENT_TIMER_RESUMED = "timer.resumed"
+EVENT_TIMER_PAUSED = "timer.paused"
+
 
 def _format_timedelta(delta: timedelta) -> str:
     """Format timedelta as H:MM:SS string."""
@@ -73,11 +80,22 @@ class TemporaryTimer(TemporaryEntity):
         self._start_time: datetime | None = None
         self._end_time: datetime | None = None
         self._finish_unsub = None
+        self._is_restoring: bool = False
         self._set_internal_state(STATE_IDLE)
 
     def set_duration(self, duration: int) -> None:
         """Set the duration."""
+        old_duration = self._duration_s
         self._duration_s = duration
+
+        # Fire changed event
+        if not self._is_restoring:
+            event_data = self._build_event_data()
+            event_data["old_duration"] = old_duration
+            event_data[ATTR_DURATION] = duration
+            self.hass.bus.async_fire(EVENT_TIMER_CHANGED, event_data)
+
+        self.async_write_ha_state()
 
     def _update_extra_state_attributes(self) -> None:
         """Update extra state attributes."""
@@ -116,8 +134,22 @@ class TemporaryTimer(TemporaryEntity):
                 self._end_time.isoformat()
             )
 
-    async def start(self) -> None:
-        """Start the timer."""
+    def _build_event_data(self) -> dict[str, Any]:
+        """Build common event data for timer events."""
+        event_data: dict[str, Any] = {
+            ATTR_ENTITY_ID: self.entity_id,
+            "name": self._attr_name,
+            ATTR_DURATION: self._duration_s,
+            ATTR_FINISHES_AT: self._end_time.isoformat() if self._end_time else None,
+        }
+        return event_data
+
+    async def start(self, is_resume: bool = False) -> None:
+        """Start the timer.
+
+        Args:
+            is_resume: True if starting from a resume operation, False otherwise.
+        """
         # Cancel existing timer if running
         self._cancel_timers()
 
@@ -149,6 +181,11 @@ class TemporaryTimer(TemporaryEntity):
             duration.total_seconds(),
         )
 
+        # Fire created event (only if not resuming and not restoring)
+        if not is_resume and not self._is_restoring:
+            event_data = self._build_event_data()
+            self.hass.bus.async_fire(EVENT_TIMER_CREATED, event_data)
+
     def async_pause(self) -> None:
         """Pause the timer."""
         if not self.is_active:
@@ -178,18 +215,36 @@ class TemporaryTimer(TemporaryEntity):
             self._remaining.total_seconds() if self._remaining else 0,
         )
 
+        # Fire paused event
+        if not self._is_restoring:
+            event_data = self._build_event_data()
+            if self._remaining:
+                event_data[ATTR_REMAINING] = self._remaining.total_seconds()
+            self.hass.bus.async_fire(EVENT_TIMER_PAUSED, event_data)
+
     async def async_resume(self) -> None:
         """Resume the timer."""
         if not self.is_paused:
             return
 
-        await self.start()
+        await self.start(is_resume=True)
+
+        # Fire resumed event before starting
+        if not self._is_restoring:
+            event_data = self._build_event_data()
+            self.hass.bus.async_fire(EVENT_TIMER_RESUMED, event_data)
 
     def async_cancel(self) -> None:
         """Cancel the timer."""
         self._cancel_timers()
         self._mark_finalized()
         _LOGGER.debug("Cancelled timer %s", self.entity_id)
+
+        # Fire cancelled event
+        if not self._is_restoring:
+            event_data = self._build_event_data()
+            # Include remaining time if timer was active or paused
+            self.hass.bus.async_fire(EVENT_TIMER_CANCELLED, event_data)
 
     def async_finish(self) -> None:
         """Finish the timer."""
@@ -198,10 +253,9 @@ class TemporaryTimer(TemporaryEntity):
         _LOGGER.info("Timer %s finished", self.entity_id)
 
         # Fire event for automations
-        self.hass.bus.async_fire(
-            "timer.finished",
-            {ATTR_ENTITY_ID: self.entity_id},
-        )
+        if not self._is_restoring:
+            event_data = self._build_event_data()
+            self.hass.bus.async_fire(EVENT_TIMER_FINISHED, event_data)
 
     @callback
     def _async_finish_callback(self, now: Any) -> None:
@@ -217,6 +271,9 @@ class TemporaryTimer(TemporaryEntity):
     def _restore_from_old_state(self, old_state: State) -> None:
         """Restore from previous state."""
         super()._restore_from_old_state(old_state)
+
+        # Set restoration flag to suppress events
+        self._is_restoring = True
 
         # Restore timer-specific attributes
         if old_state.attributes.get(ATTR_DURATION):
@@ -260,6 +317,9 @@ class TemporaryTimer(TemporaryEntity):
             self.async_write_ha_state()
         else:
             self.async_write_ha_state()
+
+        # Clear restoration flag
+        self._is_restoring = False
 
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity will be removed from hass."""
