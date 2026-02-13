@@ -17,8 +17,6 @@
   "ruff.nativeServer": true,
   "ruff.enable": true,
   "ruff.importStrategy": "fromEnvironment",
-  "ruff.lint.run": "onSave",
-  "ruff.format.args": [],
 
   "files.exclude": {
     "**/__pycache__": true,

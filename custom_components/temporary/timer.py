@@ -69,16 +69,15 @@ class TemporaryTimer(TemporaryEntity):
         )
 
         self._duration_s: int = duration
-        self._remaining = timedelta(seconds=duration)
+        self._remaining: timedelta | None = None
         self._start_time: datetime | None = None
         self._end_time: datetime | None = None
         self._finish_unsub = None
         self._set_internal_state(STATE_IDLE)
 
     def set_duration(self, duration: int) -> None:
-        """Set the duration and remaining time."""
+        """Set the duration."""
         self._duration_s = duration
-        self._remaining = timedelta(seconds=duration)
 
     def _update_extra_state_attributes(self) -> None:
         """Update extra state attributes."""
@@ -88,13 +87,19 @@ class TemporaryTimer(TemporaryEntity):
         # Add timer-specific attributes
         self._attr_extra_state_attributes = self._attr_extra_state_attributes or {}
 
-        # Calculate remaining time on-demand if timer is active
-        remaining = self._remaining or timedelta(0)
+        # Calculate remaining time based on state
         if self.is_active and self._end_time:
+            # Active: calculate from end time
             now = dt_util.utcnow()
             remaining = self._end_time - now
             if remaining.total_seconds() < 0:
                 remaining = timedelta(0)
+        elif self.is_paused and self._remaining is not None:
+            # Paused: use stored remaining time
+            remaining = self._remaining
+        else:
+            # Idle/finalized or no remaining data: show zero
+            remaining = timedelta(0)
 
         # Format duration as timedelta for formatting
         duration_delta = timedelta(seconds=self._duration_s)
@@ -116,9 +121,19 @@ class TemporaryTimer(TemporaryEntity):
         # Cancel existing timer if running
         self._cancel_timers()
 
+        # Determine duration: use remaining if resuming from pause, otherwise use full duration
+        duration = (
+            self._remaining
+            if self._remaining is not None
+            else timedelta(seconds=self._duration_s)
+        )
+
         # Set start and end times
         self._start_time = dt_util.utcnow()
-        self._end_time = self._start_time + (self._remaining or timedelta(0))
+        self._end_time = self._start_time + duration
+
+        # Clear remaining since we're now tracking via end_time
+        self._remaining = None
 
         # Mark as active
         self._mark_active()
@@ -131,7 +146,7 @@ class TemporaryTimer(TemporaryEntity):
         _LOGGER.debug(
             "Started timer %s for %s seconds",
             self.entity_id,
-            self._remaining.total_seconds() if self._remaining else 0,
+            duration.total_seconds(),
         )
 
     def async_pause(self) -> None:
@@ -173,14 +188,12 @@ class TemporaryTimer(TemporaryEntity):
     def async_cancel(self) -> None:
         """Cancel the timer."""
         self._cancel_timers()
-        self._remaining = timedelta(0)
         self._mark_finalized()
         _LOGGER.debug("Cancelled timer %s", self.entity_id)
 
     def async_finish(self) -> None:
         """Finish the timer."""
         self._cancel_timers()
-        self._remaining = timedelta(0)
         self._mark_finalized()
         _LOGGER.info("Timer %s finished", self.entity_id)
 
@@ -234,7 +247,6 @@ class TemporaryTimer(TemporaryEntity):
                 self.hass.async_create_task(self.start())
             else:
                 # Timer expired during downtime — finish immediately
-                self._remaining = timedelta(0)
                 self.async_finish()
         elif old_state.state == STATE_PAUSED:
             # Only set _remaining from saved attribute for paused timers
