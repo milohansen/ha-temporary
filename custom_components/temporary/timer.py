@@ -23,12 +23,12 @@ from .entity import TemporaryEntity
 
 _LOGGER = logging.getLogger(__name__)
 
+EVENT_TIMER_CREATED = "temporary.timer_created"
 EVENT_TIMER_FINISHED = "temporary.timer_finished"
 EVENT_TIMER_CANCELLED = "temporary.timer_cancelled"
 EVENT_TIMER_CHANGED = "temporary.timer_changed"
-EVENT_TIMER_CREATED = "temporary.timer_created"
-EVENT_TIMER_RESUMED = "temporary.timer_resumed"
 EVENT_TIMER_PAUSED = "temporary.timer_paused"
+EVENT_TIMER_RESUMED = "temporary.timer_resumed"
 
 
 def _format_timedelta(delta: timedelta) -> str:
